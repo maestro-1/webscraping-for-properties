@@ -16,7 +16,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 
 
-conn=sqlite3.connect("property.db")
+conn=sqlite3.connect(":memory:")
 c=conn.cursor()
 
 
@@ -52,12 +52,12 @@ class NaijaProperties:
 
 
     # navigating to the required webpage location
-    def setup(self):
-            self.driver.get("https://www.nigeriapropertycentre.com/")
+    def setup(self,http_address,text_to_send):
+            self.driver.get(http_address)
             self.popup()
             self.driver.find_element_by_xpath('//*[@id="li-cid-for-rent"]/a/label').click()
-            self.driver.find_element_by_id('tid').send_keys("flats")
-            # database=create_DB()
+            self.driver.find_element_by_id('tid').send_keys(text_to_send)
+            database=create_DB()
 
             # loop through csv file created and extract names from it into loop for process
             with open("states.csv","r") as states:
@@ -66,8 +66,8 @@ class NaijaProperties:
                     state=stat[2:-2].lower().capitalize()
 
                         # check if in intended webpage location and respond appropriately
-                    if self.driver.current_url != "https://www.nigeriapropertycentre.com/":
-                        self.interact()
+                    if self.driver.current_url != text_to_send:
+                        self.interact(http_address)
                     else:
                         self.popup()
                         self.driver.find_element_by_xpath('//*[@id="li-cid-for-rent"]/a/label').click()
@@ -78,32 +78,30 @@ class NaijaProperties:
                     time.sleep(2)
                     text.send_keys(Keys.ENTER)
 
-                    detail=self.details()
-                    if detail == "properties available":
-                        print("running")
+                    detail=self.details("More details","wp-block property list","wp-block hero light")
+                    if detail != None:
                         self.next_page(state)
                     else:
                         continue
 
 
     # helper function for navigation
-    def interact(self):
-        self.driver.execute_script("window.location.replace('https://www.nigeriapropertycentre.com/');")
+    def interact(self,http_address):
+        self.driver.execute_script(f"window.location.replace('{http_address}');")
         self.driver.find_element_by_xpath('//*[@id="li-cid-for-rent"]/a/label').click()
         self.driver.find_element_by_id('tid').send_keys("flats")
 
 
 
     # function for locating the links on the page and extracting the links for redirecting
-    def details(self):
+    def details(self,link_text,resouces_class,no_resource_class):
         detail=self.driver.find_elements_by_xpath("//*")
         for i,ch in enumerate(detail):
             info = detail[i].get_attribute("class")
 
             # target properties are present in pages with this class, respond appropriately
-            if info=="wp-block property list":
-                links=self.driver.find_elements_by_link_text("More details")
-                url_links=list(links)
+            if info==resouces_class:
+                links=self.driver.find_elements_by_link_text(link_text)
 
                 # loop through the links, open pages and extract info then close pages
                 for link in links:
@@ -113,28 +111,22 @@ class NaijaProperties:
                 break
 
             # target properties are not present as far as this class is involved
-            if info=="wp-block hero light":
+            if info==no_resource_class:
                 self.driver.execute_script("history.go(-1);")
                 self.popup()
                 break
                 return None
-
         return "properties available"
 
 
 
-    # helper fucntion to help extraction
+    # helper function to help extraction
     def extract(self):
         child_tab=self.driver.window_handles[1]
         self.driver.switch_to.window(child_tab)
 
-        # find and click number button via javascript execution
-        self.driver.execute_script("showPhoneNumbers()")
-        
-
         #copy intended texts from page after it appears using static scraping
-        rent_data=self.extraction_process()
-        # insert_rent(rent_data)
+        self.extraction_process()
 
         #close tabs
         self.driver.close()
@@ -144,16 +136,21 @@ class NaijaProperties:
     # helper function for the final extraction
     def extraction_process(self):
         url=self.driver.current_url
-        print(url)
         req=requests.get(url)
         page=Soup(req.text,"html.parser")
-        building_address= self.driver.find_element_by_tag_name("address")
-        building_price= page.find("span",{"class":"price"})
-        building_details= page.find("table",{"class":"table table-bordered table-striped"})
-        # contact_info= page.find("div",{"class":"text-center voffset-20"})
-        contact_info= page.find("span",{"data-type":"phoneNumber"})
-        print(contact_info)
-        # return (building_address,building_price,building_details,contact_info)
+        building_address= self.driver.find_element_by_tag_name("address").text
+        building_details= str(page.find("table",{"class":"table table-bordered table-striped"}).text).replace('\xa0',' ').strip()
+        building_price=page.select(".price")
+        for price in building_price:
+            if price.get('itemprop')=="price":
+                if price['content']!=None:
+                    contact_info= page.select("input[type=hidden]")
+                    for info in contact_info:
+                        if info.get('id')=="fullPhoneNumbers":
+                            insert_rent([building_address],float(price['content']),[building_details],[info['value']])
+                            search()
+                            return 'datastored'
+
 
 
     # navigating to the next page if there is more than one page
@@ -164,7 +161,8 @@ class NaijaProperties:
 
             pattern=re.compile(r"\d+([,]\d+)?$")
 
-            # obtain the number of available flats there are in the region using static scraping(BeautifulSoup) and divide by 20 to get the number of pages
+            # obtain the number of available flats there are in the region using static scraping(BeautifulSoup)
+            # and divide by 20 to get the number of pages
             url=self.driver.current_url
             req=requests.get(url)
             s_page=Soup(req.text, "html.parser")
@@ -178,7 +176,6 @@ class NaijaProperties:
                 else:
                     flat=flat.group(0)
                 url_range=round(int(flat)/20)
-                print(url_range)
 
                 # check that there is more than one page for this intended resource
                 if url_range>1:
@@ -186,9 +183,7 @@ class NaijaProperties:
 
                          #url pattern hunting to navigate pages using string format on the url
                         new_url=str((i+1)*10)
-                        page= "https://www.nigeriapropertycentre.com/for-rent/flats-apartments/" + state_looking_through.lower() + "/results" + f"?limitstart={new_url}&q=" +  state_looking_through.lower() + "+for-rent+flats-apartments&selectedLoc="  #urls for extended pages
-                        print(self.driver.current_url)
-                        print(page)
+                        page= f"https://www.nigeriapropertycentre.com/for-rent/flats-apartments/{state_looking_through.lower()}/results" + f"?limitstart={new_url}&q={state_looking_through.lower()}+for-rent+flats-apartments&selectedLoc="  #urls for extended pages
                         self.driver.execute_script("window.location.replace('{}')".format(page))
                         self.details()
                 else:
@@ -216,11 +211,11 @@ class NaijaProperties:
 
     # run program execution
     def execute(self):
-        # if os.path.exists(r"Scripts/webscrap/states.csv")==False:
-        #     self.states()
-        # else:
-        #     pass
-        self.setup()
+        if os.path.exists(r"Scripts/webscrap/states.csv"):
+            self.states()
+        else:
+            pass
+        self.setup("https://www.nigeriapropertycentre.com/","flats")
         self.teardown()
 
 
@@ -230,15 +225,23 @@ def create_DB():
         location text,
         price integer,
         description text,
-        contact integer
+        contact text
         )
         """)
 
-# def insert_rent(*args):
-    # (arg1,arg2,arg3,arg4)=args
-    # print(arg1,arg2,arg3,arg4)
-    # with conn:
-        # c.execute("INSERT INT0 rent VALUES (:location, :price, :description, :contact)",{'location': arg1, 'price': arg2, 'description': arg3, 'contact':arg4})
+def insert_rent(*args):
+    arg1,arg2,arg3,arg4=args
+    location=" ".join(arg1)
+    price=arg2
+    description=" ".join(arg3)
+    contact=" ".join(arg4)
+    with conn:
+        c.execute("INSERT INT0 rent VALUES (:location, :price, :description, :contact)", {'location': location, 'price':price, 'description': description, 'contact':contact})
+
+def search():
+    with conn:
+        c.execute("SELECT * FROM rent")
+        print(c.fetchall())
 
 
 if __name__ == '__main__':
