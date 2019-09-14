@@ -7,29 +7,25 @@ import sqlite3
 import time
 from bs4 import BeautifulSoup as Soup
 from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.common.proxy import Proxy,ProxyType
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.ui import WebDriverWait
 
 
 
-conn=sqlite3.connect(":memory:")
+conn=sqlite3.connect("property.db")
 c=conn.cursor()
 
 
 class NaijaProperties:
     def __init__(self):
-        self.prox=Proxy()
-        self.prox.proxy_type=ProxyType.MANUAL
-        self.prox.http_proxy= "149.215.113.110:70"
-        self.prox.socks_proxy= "149.215.113.110:70"
-        self.prox.ssl_proxy= "149.215.113.110:70"
-        self.options=webdriver.ChromeOptions()
-        self.options.Proxy=self.prox
+        self.options=Options()
+        self.options.headless=True
         self.options.add_argument("ignore-certificate-errors")
+        self.options.add_argument("--proxy-server=http://148.217.94.54:3128")
         self.driver=webdriver.Chrome(options=self.options)
         self.action= ActionChains(self.driver)
         self.wait=WebDriverWait(self.driver,50)
@@ -39,10 +35,11 @@ class NaijaProperties:
 
     # create a csv file to later loop through as a shortcut: helper function
     def states(self):
+        create_DB()
         try:
             self.driver.get("http://www.umunna.org/nigeria_state.html")
             with open("states.csv", "w") as states:
-                parentTab=self.driver.find_elements_by_xpath('//*[@id="main"]/table/tbody/tr/td[1]/h2')
+                parentTab=self.driver.find_elements_by_xpath('/html/body/div[3]/div/div[3]/table/tbody/tr/td[1]/h2/font')
                 for i in parentTab:
                     states.write(i.text)
         except Exception as e:
@@ -53,36 +50,35 @@ class NaijaProperties:
 
     # navigating to the required webpage location
     def setup(self,http_address,text_to_send):
-            self.driver.get(http_address)
-            self.popup()
-            self.driver.find_element_by_xpath('//*[@id="li-cid-for-rent"]/a/label').click()
-            self.driver.find_element_by_id('tid').send_keys(text_to_send)
-            database=create_DB()
+        self.driver.get(http_address)
+        self.popup()
+        self.driver.find_element_by_xpath('//*[@id="li-cid-for-rent"]/a/label').click()
+        self.driver.find_element_by_id('tid').send_keys(text_to_send)
 
-            # loop through csv file created and extract names from it into loop for process
-            with open("states.csv","r") as states:
-                for line in csv.reader(states):
-                    stat=str(line)
-                    state=stat[2:-2].lower().capitalize()
+        # loop through csv file created and extract names from it into loop for process
+        with open("states.csv","r") as states:
+            for line in csv.reader(states):
+                stat=str(line)
+                state=stat[2:-2].lower().capitalize()
 
-                        # check if in intended webpage location and respond appropriately
-                    if self.driver.current_url != text_to_send:
-                        self.interact(http_address)
-                    else:
-                        self.popup()
-                        self.driver.find_element_by_xpath('//*[@id="li-cid-for-rent"]/a/label').click()
-                        self.driver.find_element_by_id('tid').send_keys("flats")
-                    text=self.driver.find_element_by_id("propertyLocation")
-                    text.clear()
-                    text.send_keys(state)
-                    time.sleep(2)
-                    text.send_keys(Keys.ENTER)
+                    # check if in intended webpage location and respond appropriately
+                if self.driver.current_url != text_to_send:
+                    self.interact(http_address)
+                else:
+                    self.popup()
+                    self.driver.find_element_by_xpath('//*[@id="li-cid-for-rent"]/a/label').click()
+                    self.driver.find_element_by_id('tid').send_keys("flats")
+                text=self.driver.find_element_by_id("propertyLocation")
+                text.clear()
+                text.send_keys(state)
+                time.sleep(2)
+                text.send_keys(Keys.ENTER)
 
-                    detail=self.details("More details","wp-block property list","wp-block hero light")
-                    if detail != None:
-                        self.next_page(state)
-                    else:
-                        continue
+                detail=self.details("More details","wp-block property list","wp-block hero light")
+                if detail != None:
+                    self.next_page(state)
+                else:
+                    continue
 
 
     # helper function for navigation
@@ -114,7 +110,6 @@ class NaijaProperties:
             if info==no_resource_class:
                 self.driver.execute_script("history.go(-1);")
                 self.popup()
-                break
                 return None
         return "properties available"
 
@@ -139,7 +134,8 @@ class NaijaProperties:
         req=requests.get(url)
         page=Soup(req.text,"html.parser")
         building_address= self.driver.find_element_by_tag_name("address").text
-        building_details= str(page.find("table",{"class":"table table-bordered table-striped"}).text).replace('\xa0',' ').strip()
+        pattern=re.compile(r'(\w+$)')
+        state=pattern.search(building_address)
         building_price=page.select(".price")
         for price in building_price:
             if price.get('itemprop')=="price":
@@ -147,9 +143,9 @@ class NaijaProperties:
                     contact_info= page.select("input[type=hidden]")
                     for info in contact_info:
                         if info.get('id')=="fullPhoneNumbers":
-                            insert_rent([building_address],float(price['content']),[building_details],[info['value']])
-                            search()
-                            return 'datastored'
+                            print(info["value"])
+                            insert_rent([building_address],float(price['content']), state.group(0),[info['value']])
+                            return None
 
 
 
@@ -211,10 +207,11 @@ class NaijaProperties:
 
     # run program execution
     def execute(self):
-        if os.path.exists(r"Scripts/webscrap/states.csv"):
-            self.states()
-        else:
+        print("program has started execution")
+        if os.path.exists("states.csv"):
             pass
+        else:
+            self.states()
         self.setup("https://www.nigeriapropertycentre.com/","flats")
         self.teardown()
 
@@ -224,7 +221,7 @@ def create_DB():
         c.execute("""CREATE TABLE rent(
         location text,
         price integer,
-        description text,
+        state text,
         contact text
         )
         """)
@@ -233,10 +230,10 @@ def insert_rent(*args):
     arg1,arg2,arg3,arg4=args
     location=" ".join(arg1)
     price=arg2
-    description=" ".join(arg3)
+    state=arg3
     contact=" ".join(arg4)
     with conn:
-        c.execute("INSERT INT0 rent VALUES (:location, :price, :description, :contact)", {'location': location, 'price':price, 'description': description, 'contact':contact})
+        c.execute("insert into rent values (:location, :price, :state, :contact)", {'location': location, 'price':price, 'state':state, 'contact':contact})
 
 def search():
     with conn:
