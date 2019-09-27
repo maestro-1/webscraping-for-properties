@@ -1,8 +1,8 @@
 import re
 import requests
 import time
-from bs4 import BeautifulSoup as Soup
 import urllib
+from bs4 import BeautifulSoup as Soup
 from urllib.parse import urlsplit
 
 
@@ -16,12 +16,11 @@ class crawler:
             for state in states:
                 A_url=f"https://www.nigeriapropertycentre.com/for-rent/flats-apartments/{state.lower()}"
                 url=urlsplit(A_url)
-                print(url.geturl())
                 yield url.geturl()
 
 
     def pagination(self,url):
-        """generate possible url link for paginated pages """
+        """generate possible url  for paginated pages """
 
         try:
             req=urllib.request.urlopen(url)
@@ -49,8 +48,9 @@ class crawler:
 
     #a helper function to help extract links for the details of each building
     def extract_links(self, url):
-        req=requests.get(url)
-        page=Soup(req.content, "html.parser")
+        print(url)
+        req=urllib.request.urlopen(url)
+        page=Soup(req.read(), "html.parser")
         links=page.find_all("div",class_= "wp-block-body")
         for link in links:
             hrefs=link.select("a")
@@ -75,6 +75,7 @@ class crawler:
         for info in contact_info:
             if info.get('id')=="fullPhoneNumbers":
                 contact=info["value"]
+        print(building_address, price, state.group(0), contact)
         return building_address, price, state.group(0), contact
 
 
@@ -86,9 +87,12 @@ if __name__ == '__main__':
     crawler=crawler()
     entry=crawler.entry()
     print()
+    # for _ in range(35):
+    #     crawler.pagination(next(entry))
     for _ in range(35):
-        crawler.pagination(next(entry))
-    print()
-    # links=crawler.extract_links(url)
-    # for _ in range(20):
-    #     print(crawler.extract_details(next(links)))
+        links=crawler.extract_links(next(entry))
+        for _ in range(20):
+            try:
+                crawler.extract_details(next(links))
+            except Exception as e:
+                pass
