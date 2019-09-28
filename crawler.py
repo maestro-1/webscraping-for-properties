@@ -1,6 +1,6 @@
 import re
 import requests
-import time
+import timeit
 import urllib
 from bs4 import BeautifulSoup as Soup
 from urllib.parse import urlsplit
@@ -25,6 +25,7 @@ class crawler:
         try:
             req=urllib.request.urlopen(url)
             pattern= re.compile(r"\d+([,]\d+)?$")
+            state=url.split('/')[5]
             page= Soup(req.read(), "html.parser")
             flats=page.find("span",{"class":"pagination-results"}).text
             results=pattern.search(flats)
@@ -34,21 +35,30 @@ class crawler:
             else:
                 flat=results.group(0)
             url_range=round(int(flat)/20)
-            print(url_range)
             # check that there is more than one page for this intended resource
             if url_range>1:
-                for i in range(1,url_range):
-                     #url pattern hunting to navigate pages using string format on the url
-                    new_url=str((i+1)*10)
+                # print(state)
+                new_url=[str((i+1)) for i in range(1,url_range)] + [state]
+                 #url pattern hunting to navigate pages using string format on the url
+                yield new_url
+
             else:
                 pass
         except Exception as e:
             pass
 
 
+    def page_url(self,*args):
+        for arg in args:
+            payloads=arg
+            payload=payloads[:-1]
+            state=payloads[-1]
+            for value in payload:
+                url=f"https://www.nigeriapropertycentre.com/for-rent/flats-apartments/{state.strip()}?page={value}"
+                yield url.encode("utf-8")
+
     #a helper function to help extract links for the details of each building
     def extract_links(self, url):
-        print(url)
         req=urllib.request.urlopen(url)
         page=Soup(req.read(), "html.parser")
         links=page.find_all("div",class_= "wp-block-body")
@@ -85,14 +95,18 @@ class crawler:
 if __name__ == '__main__':
     print("execution started")
     crawler=crawler()
-    entry=crawler.entry()
-    print()
-    # for _ in range(35):
-    #     crawler.pagination(next(entry))
-    for _ in range(35):
-        links=crawler.extract_links(next(entry))
-        for _ in range(20):
-            try:
-                crawler.extract_details(next(links))
-            except Exception as e:
-                pass
+    entries=crawler.entry()
+    for entry in entries:
+        try:
+            pages=crawler.pagination(entry)
+            for page in pages:
+                urls=crawler.page_url(page)
+                for url in urls:
+                    res=requests.get(url)
+                    if res.status_code==200:
+                        print('success')
+            # links=crawler.extract_links(entry)
+            # for _ in range(20):
+            #         crawler.extract_details(next(links))
+        except Exception as e:
+            pass
