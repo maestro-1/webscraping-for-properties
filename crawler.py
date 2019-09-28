@@ -1,12 +1,19 @@
 import re
 import requests
-import timeit
+import time
 import urllib
+import concurrent.futures
 from bs4 import BeautifulSoup as Soup
 from urllib.parse import urlsplit
 
 
 class crawler:
+    """ To crawl a website and extract information from all the sites pages.
+    The init method holds an attribute should you chose to proxy the server at any point during use
+    Note there are two extract functions this is due to capatibility reasons as interchanging them may cause the
+    crawler to break or act in an usual manner. The paginated pages of the sites have been handled using byte like urls
+    while other url were handled in string form"""
+
     def __init__(self):
         self.proxy="http://148.217.94.54:3128"
 
@@ -55,10 +62,23 @@ class crawler:
             state=payloads[-1]
             for value in payload:
                 url=f"https://www.nigeriapropertycentre.com/for-rent/flats-apartments/{state.strip()}?page={value}"
-                yield url.encode("utf-8")
+                yield url
 
     #a helper function to help extract links for the details of each building
-    def extract_links(self, url):
+    def extract_links1(self, url):
+        url=url.encode("utf-8")
+        req=requests.get(url)
+        page=Soup(req.content, "html.parser")
+        links=page.find_all("div",class_= "wp-block-body")
+        for link in links:
+            hrefs=link.select("a")
+            for href in hrefs:
+                if href.text=="More details":
+                    link = f"https://www.nigeriapropertycentre.com{href['href']}"
+                    yield link
+
+
+    def extract_links2(self, url):
         req=urllib.request.urlopen(url)
         page=Soup(req.read(), "html.parser")
         links=page.find_all("div",class_= "wp-block-body")
@@ -68,7 +88,6 @@ class crawler:
                 if href.text=="More details":
                     link = f"https://www.nigeriapropertycentre.com{href['href']}"
                     yield link
-
 
 
     def extract_details(self, urls):
@@ -89,24 +108,42 @@ class crawler:
         return building_address, price, state.group(0), contact
 
 
+    def execution1(self):
+        entries=self.entry()
+        for entry in entries:
+            try:
+                pages=self.pagination(entry)
+                for page in pages:
+                    urls=self.page_url(page)
+                    for url in urls:
+                        # res=requests.get(url)
+                        links=self.extract_links1(url)
+                        for _ in range(20):
+                            try:
+                                print(self.extract_details(next(links)))
+                            except Exception as e:
+                                pass
+            except Exception as e:
+                pass
+
+
+    def execution2(self):
+        entries=self.entry()
+        for entry in entries:
+            try:
+                links=crawler.extract_links2(entry)
+                for _ in range(20):
+                        crawler.extract_details(next(links))
+            except Exception as e:
+                pass
 
 
 
 if __name__ == '__main__':
     print("execution started")
     crawler=crawler()
-    entries=crawler.entry()
-    for entry in entries:
-        try:
-            pages=crawler.pagination(entry)
-            for page in pages:
-                urls=crawler.page_url(page)
-                for url in urls:
-                    res=requests.get(url)
-                    if res.status_code==200:
-                        print('success')
-            # links=crawler.extract_links(entry)
-            # for _ in range(20):
-            #         crawler.extract_details(next(links))
-        except Exception as e:
-            pass
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        executor.submit(crawler.execution2)
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        executor.submit(crawler.execution1)
