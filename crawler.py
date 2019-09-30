@@ -1,11 +1,22 @@
+import csv
+import pandas as pd
 import re
 import requests
 import sqlite3
-import time
 import urllib
 import concurrent.futures
 from bs4 import BeautifulSoup as Soup
+from sqlalchemy import create_engine
 from urllib.parse import urlsplit
+
+
+def insert_rent(*args):
+    rentals = [arg for value in args for arg in value]
+    print(rentals[0], rentals[1], rentals[2], rentals[3])
+    d = {'location': rentals[0], 'price': rentals[1], 'state': rentals[2], 'contact':rentals[3]}
+    df = pd.DataFrame(data=d)
+    df.to_sql('rent', con=engine, if_exists='append',
+               index_label='id')
 
 
 class crawler:
@@ -17,6 +28,7 @@ class crawler:
     manner.
     The paginated pages of the sites have been handled using byte like urls
     while other url were handled in string form"""
+
 
     def __init__(self):
         self.proxy = "http://148.217.94.54:3128"
@@ -91,7 +103,7 @@ class crawler:
     def extract_details(self, urls):
         req = requests.get(urls)
         page = Soup(req.content, "html.parser")
-        building_address = page.find("address").text
+        building_address = page.find("address").text.strip()
         pattern = re.compile(r'(\w+$)')
         state = pattern.search(building_address)
         state = state.group(0)
@@ -103,9 +115,9 @@ class crawler:
         for info in contact_info:
             if info.get('id') == "fullPhoneNumbers":
                 contact = info["value"]
-        # with sqlite3.connect("property.db") as conn:
-        #     conn.execute("insert into rentals values (:location, :price, :state, :contact)", {'location': building_address, 'price': price, 'state': state, 'contact': contact})
-        
+        yield [building_address], price, [state], [contact]
+
+
 
     def execution1(self):
         entries = self.entry()
@@ -118,7 +130,9 @@ class crawler:
                         links = self.extract_links1(url)
                         for _ in range(20):
                             try:
-                                print(self.extract_details(next(links)))
+                                pack2 = self.extract_details(next(links))
+                                for pack in pack2:
+                                    insert_rent(pack)
                             except Exception:
                                 pass
             except Exception:
@@ -130,7 +144,9 @@ class crawler:
             try:
                 links = crawler.extract_links2(entry)
                 for _ in range(20):
-                    crawler.extract_details(next(links))
+                    pack1 = crawler.extract_details(next(links))
+                    for pack in pack1:
+                        insert_rent(pack)
             except Exception:
                 pass
 
@@ -139,8 +155,11 @@ if __name__ == '__main__':
     print("execution started")
     crawler = crawler()
 
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        executor.submit(crawler.execution2)
+    engine = create_engine('sqlite:///property.db')
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        executor.submit(crawler.execution1)
+        pack1=executor.submit(crawler.execution2)
+
+    
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        pack2=executor.submit(crawler.execution1)
